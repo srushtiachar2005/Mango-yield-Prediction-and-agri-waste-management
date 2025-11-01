@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Loader2 } from "lucide-react"
+import { ArrowLeft, Loader2, Cloud, MapPin } from "lucide-react"
 
 interface YieldPredictionProps {
   onBack: () => void
@@ -20,18 +20,29 @@ interface PredictionResult {
   analysis: string
 }
 
+interface WeatherData {
+  temperature: number
+  humidity: number
+  rainfall: number
+  location: string
+}
+
 export default function YieldPrediction({ onBack }: YieldPredictionProps) {
   const [formData, setFormData] = useState({
     region: "",
     season: "",
     area: "",
+    location: "",
     rainfall: "",
     temperature: "",
     humidity: "",
   })
 
+  const [weatherData, setWeatherData] = useState<WeatherData | null>(null)
+  const [useWeatherApi, setUseWeatherApi] = useState(false)
   const [result, setResult] = useState<PredictionResult | null>(null)
   const [loading, setLoading] = useState(false)
+  const [weatherLoading, setWeatherLoading] = useState(false)
   const [error, setError] = useState("")
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -41,6 +52,37 @@ export default function YieldPrediction({ onBack }: YieldPredictionProps) {
 
   const handleSelectChange = (name: string, value: string) => {
     setFormData((prev) => ({ ...prev, [name]: value }))
+  }
+
+  const fetchWeatherData = async () => {
+    if (!formData.location.trim()) {
+      setError("Please enter a location for weather data")
+      return
+    }
+
+    setWeatherLoading(true)
+    setError("")
+
+    try {
+      const response = await fetch(`/api/weather?location=${encodeURIComponent(formData.location)}`)
+      if (!response.ok) throw new Error("Failed to fetch weather data")
+
+      const data = await response.json()
+      setWeatherData(data)
+
+      // Auto-fill the form with weather data
+      setFormData((prev) => ({
+        ...prev,
+        temperature: data.temperature.toFixed(1),
+        humidity: data.humidity.toFixed(1),
+        rainfall: data.rainfall.toFixed(1),
+      }))
+    } catch (err) {
+      setError("Failed to fetch weather data. Please enter values manually.")
+      console.error(err)
+    } finally {
+      setWeatherLoading(false)
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -153,6 +195,57 @@ export default function YieldPrediction({ onBack }: YieldPredictionProps) {
                 />
               </div>
 
+              {/* Weather Data Toggle */}
+              <div className="space-y-4">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="useWeatherApi"
+                    checked={useWeatherApi}
+                    onChange={(e) => setUseWeatherApi(e.target.checked)}
+                    className="rounded"
+                  />
+                  <Label htmlFor="useWeatherApi" className="flex items-center gap-2">
+                    <Cloud size={16} />
+                    Get weather data from API
+                  </Label>
+                </div>
+
+                {useWeatherApi && (
+                  <div className="space-y-2 p-4 bg-muted/50 rounded-lg">
+                    <Label htmlFor="location">Location</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="location"
+                        name="location"
+                        placeholder="Enter city name (e.g., Mumbai, Bangalore)"
+                        value={formData.location}
+                        onChange={handleInputChange}
+                        className="h-11"
+                      />
+                      <Button
+                        type="button"
+                        onClick={fetchWeatherData}
+                        disabled={weatherLoading}
+                        variant="outline"
+                        className="h-11 px-4"
+                      >
+                        {weatherLoading ? (
+                          <Loader2 size={16} className="animate-spin" />
+                        ) : (
+                          <MapPin size={16} />
+                        )}
+                      </Button>
+                    </div>
+                    {weatherData && (
+                      <p className="text-sm text-muted-foreground">
+                        Weather data for: {weatherData.location}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Rainfall */}
               <div className="space-y-2">
                 <Label htmlFor="rainfall">Rainfall (mm)</Label>
@@ -233,9 +326,12 @@ export default function YieldPrediction({ onBack }: YieldPredictionProps) {
               <div className="space-y-4">
                 {/* Yield */}
                 <div className="bg-background rounded-lg p-4 border border-border">
-                  <p className="text-sm text-muted-foreground mb-1">Estimated Yield</p>
+                  <p className="text-sm text-muted-foreground mb-1">Estimated Total Yield</p>
                   <p className="text-3xl font-bold text-primary">
-                    {result.yield.toFixed(1)} <span className="text-lg text-muted-foreground">tonnes/ha</span>
+                    {result.yield.toFixed(1)} <span className="text-lg text-muted-foreground">tonnes</span>
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    ({result.yield_per_ha?.toFixed(1) || (result.yield / formData.area).toFixed(1)} tonnes/ha)
                   </p>
                 </div>
 
@@ -249,6 +345,34 @@ export default function YieldPrediction({ onBack }: YieldPredictionProps) {
                 <div className="bg-background rounded-lg p-4 border border-border">
                   <p className="text-sm text-muted-foreground mb-2">Analysis</p>
                   <p className="text-sm text-foreground leading-relaxed">{result.analysis}</p>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {weatherData && (
+            <Card className="p-6 mt-6 bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200">
+              <h3 className="text-xl font-bold text-foreground mb-4 flex items-center gap-2">
+                <Cloud size={20} />
+                Current Weather
+              </h3>
+
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Location</span>
+                  <span className="font-medium">{weatherData.location}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Temperature</span>
+                  <span className="font-medium">{weatherData.temperature.toFixed(1)}°C</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Humidity</span>
+                  <span className="font-medium">{weatherData.humidity.toFixed(1)}%</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Rainfall (24h)</span>
+                  <span className="font-medium">{weatherData.rainfall.toFixed(1)}mm</span>
                 </div>
               </div>
             </Card>
